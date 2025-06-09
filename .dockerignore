@@ -1,0 +1,11 @@
+# Исключаем временные и лишние файлы
+airflow/logs
+airflow/__pycache__/
+app/__pycache__/
+*.pyc
+*.pyo
+*.db-journal
+.venv
+__pycache__/
+*.log
+.env

@@ -1,0 +1,6 @@
+streamlit
+pandas
+matplotlib
+openpyxl
+python-dotenv
+plotly==5.18.0
