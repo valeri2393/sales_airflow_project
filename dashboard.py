@@ -183,109 +183,109 @@ elif menu == "📋 Динамика продаж":
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- Новый блок: выбор менеджера и таблица клиентов ---
-        conn = sqlite3.connect(DB_PATH)
-        df_managers = pd.read_sql_query('SELECT DISTINCT manager FROM sales WHERE manager IS NOT NULL AND manager != ""', conn)
-        conn.close()
-        managers = sorted(df_managers['manager'].unique())
-        selected_manager = st.selectbox('Выберите менеджера для анализа клиентов:', managers)
-        if selected_manager:
-            # Считаем общую сумму продаж (план и факт) по выбранному менеджеру и году
-            conn = sqlite3.connect(DB_PATH)
-            df_total = pd.read_sql_query('''
-                SELECT 
-                    SUM(CASE WHEN type = "Bdg" THEN revenue ELSE 0 END) as План,
-                    SUM(CASE WHEN type = "Факт" THEN revenue ELSE 0 END) as Факт
-                FROM sales
-                WHERE manager = ? AND year = ?
-            ''', conn, params=(selected_manager, str(selected_year)))
-            conn.close()
-            total_plan = int(df_total.iloc[0]['План']) if not pd.isna(df_total.iloc[0]['План']) else 0
-            total_fact = int(df_total.iloc[0]['Факт']) if not pd.isna(df_total.iloc[0]['Факт']) else 0
-            st.markdown(f"""
-                <div style='background:#f8f9fa; border-radius:10px; padding:1em 1em; margin-bottom:1em; box-shadow:0 2px 8px rgba(44,62,80,0.07);'>
-                    <span style='font-size:1.1em; color:#566573;'>Сумма продаж менеджера <b>{selected_manager}</b> за {selected_year} год:</span><br>
-                    <span style='font-size:1.2em; color:#117A65;'>Факт: <b>{total_fact:,} руб.</b></span><br>
-                    <span style='font-size:1.2em; color:#2874A6;'>План: <b>{total_plan:,} руб.</b></span>
-                </div>
-            """, unsafe_allow_html=True)
-            conn = sqlite3.connect(DB_PATH)
-            df_clients = pd.read_sql_query(f'''
-                SELECT client_code,
-                       SUM(CASE WHEN type = 'Факт' THEN revenue ELSE 0 END) as Факт
-                FROM sales
-                WHERE manager = ? AND year = ?
-                GROUP BY client_code
-                HAVING Факт > 0
-                ORDER BY Факт DESC
-            ''', conn, params=(selected_manager, str(selected_year)))
-            conn.close()
-            if not df_clients.empty:
-                conn = sqlite3.connect(DB_PATH)
-                df_names = pd.read_sql_query('SELECT code, name FROM clients', conn)
-                conn.close()
-                df_clients_merged = df_clients.merge(df_names, left_on='client_code', right_on='code', how='left')
-                if not df_clients_merged['name'].isnull().all():
-                    df_clients_merged = df_clients_merged[['client_code', 'name', 'Факт']]
-                    df_clients_merged = df_clients_merged.rename(columns={'name': 'Клиент'})
-                    st.markdown(f"<b>Найдено клиентов: {len(df_clients_merged)}</b>", unsafe_allow_html=True)
-                    if df_clients_merged.empty:
-                        st.info("Нет клиентов с продажами по выбранному менеджеру и году.")
-                    else:
-                        for idx, row in df_clients_merged.iterrows():
-                            expander_label = f"{row['Клиент']} — {int(row['Факт']):,} руб."
-                            with st.expander(label=expander_label, expanded=False):
-                                conn = sqlite3.connect(DB_PATH)
-                                df_products = pd.read_sql_query(
-                                    '''
-                                    SELECT p.code_ap, SUM(s.revenue) as Сумма_продаж
-                                    FROM sales s
-                                    LEFT JOIN products p ON s.product_code = p.code
-                                    WHERE s.client_code = ? AND s.manager = ? AND s.year = ?
-                                    GROUP BY p.code_ap
-                                    ORDER BY Сумма_продаж DESC
-                                    ''',
-                                    conn, params=(row['client_code'], selected_manager, str(selected_year))
-                                )
-                                conn.close()
-                                if not df_products.empty:
-                                    st.dataframe(df_products.rename(
-                                        columns={'code_ap': 'Код продукции', 'Сумма_продаж': 'Сумма продаж'}
-                                    ), use_container_width=True)
-                                else:
-                                    st.info("Нет данных по продукции для этого клиента.")
-                else:
-                    st.info('Нет совпадений в справочнике клиентов. Показываю только по данным sales:')
-                    df_clients_simple = df_clients[['client_code', 'Факт']].copy()
-                    df_clients_simple = df_clients_simple.rename(columns={'client_code': 'Клиент'})
-                    st.markdown(f"<b>Найдено клиентов: {len(df_clients_simple)}</b>", unsafe_allow_html=True)
-                    if df_clients_simple.empty:
-                        st.info("Нет клиентов с продажами по выбранному менеджеру и году.")
-                    else:
-                        for idx, row in df_clients_simple.iterrows():
-                            expander_label = f"{row['Клиент']} — {int(row['Факт']):,} руб."
-                            with st.expander(label=expander_label, expanded=False):
-                                conn = sqlite3.connect(DB_PATH)
-                                df_products = pd.read_sql_query(
-                                    '''
-                                    SELECT p.code_ap, SUM(s.revenue) as Сумма_продаж
-                                    FROM sales s
-                                    LEFT JOIN products p ON s.product_code = p.code
-                                    WHERE s.client_code = ? AND s.manager = ? AND s.year = ?
-                                    GROUP BY p.code_ap
-                                    ORDER BY Сумма_продаж DESC
-                                    ''',
-                                    conn, params=(row['Клиент'], selected_manager, str(selected_year))
-                                )
-                                conn.close()
-                                if not df_products.empty:
-                                    st.dataframe(df_products.rename(
-                                        columns={'code_ap': 'Код продукции', 'Сумма_продаж': 'Сумма продаж'}
-                                    ), use_container_width=True)
-                                else:
-                                    st.info("Нет данных по продукции для этого клиента.")
-            else:
-                st.info('Нет данных по выбранному менеджеру.')
+        # # --- Новый блок: выбор менеджера и таблица клиентов ---
+        # conn = sqlite3.connect(DB_PATH)
+        # df_managers = pd.read_sql_query('SELECT DISTINCT manager FROM sales WHERE manager IS NOT NULL AND manager != ""', conn)
+        # conn.close()
+        # managers = sorted(df_managers['manager'].unique())
+        # selected_manager = st.selectbox('Выберите менеджера для анализа клиентов:', managers)
+        # if selected_manager:
+        #     # Считаем общую сумму продаж (план и факт) по выбранному менеджеру и году
+        #     conn = sqlite3.connect(DB_PATH)
+        #     df_total = pd.read_sql_query('''
+        #         SELECT 
+        #             SUM(CASE WHEN type = "Bdg" THEN revenue ELSE 0 END) as План,
+        #             SUM(CASE WHEN type = "Факт" THEN revenue ELSE 0 END) as Факт
+        #         FROM sales
+        #         WHERE manager = ? AND year = ?
+        #     ''', conn, params=(selected_manager, str(selected_year)))
+        #     conn.close()
+        #     total_plan = int(df_total.iloc[0]['План']) if not pd.isna(df_total.iloc[0]['План']) else 0
+        #     total_fact = int(df_total.iloc[0]['Факт']) if not pd.isna(df_total.iloc[0]['Факт']) else 0
+        #     st.markdown(f"""
+        #         <div style='background:#f8f9fa; border-radius:10px; padding:1em 1em; margin-bottom:1em; box-shadow:0 2px 8px rgba(44,62,80,0.07);'>
+        #             <span style='font-size:1.1em; color:#566573;'>Сумма продаж менеджера <b>{selected_manager}</b> за {selected_year} год:</span><br>
+        #             <span style='font-size:1.2em; color:#117A65;'>Факт: <b>{total_fact:,} руб.</b></span><br>
+        #             <span style='font-size:1.2em; color:#2874A6;'>План: <b>{total_plan:,} руб.</b></span>
+        #         </div>
+        #     """, unsafe_allow_html=True)
+        #     conn = sqlite3.connect(DB_PATH)
+        #     df_clients = pd.read_sql_query(f'''
+        #         SELECT client_code,
+        #                SUM(CASE WHEN type = 'Факт' THEN revenue ELSE 0 END) as Факт
+        #         FROM sales
+        #         WHERE manager = ? AND year = ?
+        #         GROUP BY client_code
+        #         HAVING Факт > 0
+        #         ORDER BY Факт DESC
+        #     ''', conn, params=(selected_manager, str(selected_year)))
+        #     conn.close()
+        #     if not df_clients.empty:
+        #         conn = sqlite3.connect(DB_PATH)
+        #         df_names = pd.read_sql_query('SELECT code, name FROM clients', conn)
+        #         conn.close()
+        #         df_clients_merged = df_clients.merge(df_names, left_on='client_code', right_on='code', how='left')
+        #         if not df_clients_merged['name'].isnull().all():
+        #             df_clients_merged = df_clients_merged[['client_code', 'name', 'Факт']]
+        #             df_clients_merged = df_clients_merged.rename(columns={'name': 'Клиент'})
+        #             st.markdown(f"<b>Найдено клиентов: {len(df_clients_merged)}</b>", unsafe_allow_html=True)
+        #             if df_clients_merged.empty:
+        #                 st.info("Нет клиентов с продажами по выбранному менеджеру и году.")
+        #             else:
+        #                 for idx, row in df_clients_merged.iterrows():
+        #                     expander_label = f"{row['Клиент']} — {int(row['Факт']):,} руб."
+        #                     with st.expander(label=expander_label, expanded=False):
+        #                         conn = sqlite3.connect(DB_PATH)
+        #                         df_products = pd.read_sql_query(
+        #                             '''
+        #                             SELECT p.code_ap, SUM(s.revenue) as Сумма_продаж
+        #                             FROM sales s
+        #                             LEFT JOIN products p ON s.product_code = p.code
+        #                             WHERE s.client_code = ? AND s.manager = ? AND s.year = ?
+        #                             GROUP BY p.code_ap
+        #                             ORDER BY Сумма_продаж DESC
+        #                             ''',
+        #                             conn, params=(row['client_code'], selected_manager, str(selected_year))
+        #                         )
+        #                         conn.close()
+        #                         if not df_products.empty:
+        #                             st.dataframe(df_products.rename(
+        #                                 columns={'code_ap': 'Код продукции', 'Сумма_продаж': 'Сумма продаж'}
+        #                             ), use_container_width=True)
+        #                         else:
+        #                             st.info("Нет данных по продукции для этого клиента.")
+        #         else:
+        #             st.info('Нет совпадений в справочнике клиентов. Показываю только по данным sales:')
+        #             df_clients_simple = df_clients[['client_code', 'Факт']].copy()
+        #             df_clients_simple = df_clients_simple.rename(columns={'client_code': 'Клиент'})
+        #             st.markdown(f"<b>Найдено клиентов: {len(df_clients_simple)}</b>", unsafe_allow_html=True)
+        #             if df_clients_simple.empty:
+        #                 st.info("Нет клиентов с продажами по выбранному менеджеру и году.")
+        #             else:
+        #                 for idx, row in df_clients_simple.iterrows():
+        #                     expander_label = f"{row['Клиент']} — {int(row['Факт']):,} руб."
+        #                     with st.expander(label=expander_label, expanded=False):
+        #                         conn = sqlite3.connect(DB_PATH)
+        #                         df_products = pd.read_sql_query(
+        #                             '''
+        #                             SELECT p.code_ap, SUM(s.revenue) as Сумма_продаж
+        #                             FROM sales s
+        #                             LEFT JOIN products p ON s.product_code = p.code
+        #                             WHERE s.client_code = ? AND s.manager = ? AND s.year = ?
+        #                             GROUP BY p.code_ap
+        #                             ORDER BY Сумма_продаж DESC
+        #                             ''',
+        #                             conn, params=(row['Клиент'], selected_manager, str(selected_year))
+        #                         )
+        #                         conn.close()
+        #                         if not df_products.empty:
+        #                             st.dataframe(df_products.rename(
+        #                                 columns={'code_ap': 'Код продукции', 'Сумма_продаж': 'Сумма продаж'}
+        #                             ), use_container_width=True)
+        #                         else:
+        #                             st.info("Нет данных по продукции для этого клиента.")
+        #     else:
+        #         st.info('Нет данных по выбранному менеджеру.')
 
         if set(['Факт', 'План']).issubset(df_year['Тип'].unique()):
             pivot = df_year.pivot(index='Месяц_назв', columns='Тип', values='Выручка').fillna(0)
