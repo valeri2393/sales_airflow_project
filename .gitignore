@@ -1,5 +1,5 @@
-db.db
-.env
+# db.db
+# .env
 venv
-docker-compose.yml
-Dockerfile
+# docker-compose.yml
+# Dockerfile
